@@ -78,7 +78,7 @@ Two authentication methods are supported:
   "mcpServers": {
     "gsc-mcp": {
       "command": "npx",
-      "args": ["-y", "@mikusnuz/gsc-mcp"],
+      "args": ["-y", "@mikusnuz/gsc-mcp@1.3.3"],
       "env": {
         "GSC_CLIENT_ID": "your-client-id",
         "GSC_CLIENT_SECRET": "your-client-secret",
@@ -93,6 +93,14 @@ Required OAuth2 scopes:
 - `https://www.googleapis.com/auth/webmasters`
 - `https://www.googleapis.com/auth/indexing`
 
+### Security options
+
+- `GSC_READ_ONLY=1` — registers only read tools and requests only the `webmasters.readonly` scope. Recommended when you only need analytics or inspection. Set it in the `env` block of the config above.
+- All tool output is prefixed with an untrusted-data marker, and is capped at 100,000 characters. Search queries and URLs in results come from third parties: review before acting on them.
+- `GSC_ALLOWED_SITES` — comma-separated properties/URL prefixes tools may touch (e.g. `sc-domain:example.com,https://blog.other.com/posts/`). Anything outside is rejected before any API call. Empty = unrestricted.
+- Write tools (`sites_delete`, `sitemaps_delete`, `indexing_publish`, ...) carry MCP `destructiveHint` annotations. Keep confirmation prompts enabled in your client.
+- Pin the package version (as in the examples) instead of using `npx -y @mikusnuz/gsc-mcp` unpinned.
+
 ### Option 2: Service Account
 
 ```json
@@ -100,7 +108,7 @@ Required OAuth2 scopes:
   "mcpServers": {
     "gsc-mcp": {
       "command": "npx",
-      "args": ["-y", "@mikusnuz/gsc-mcp"],
+      "args": ["-y", "@mikusnuz/gsc-mcp@1.3.3"],
       "env": {
         "GSC_SERVICE_ACCOUNT_KEY_PATH": "/path/to/service-account-key.json"
       }
