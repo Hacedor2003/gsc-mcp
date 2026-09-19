@@ -122,6 +122,46 @@ with sufficient permission. For **Indexing API** tools, Google requires the
 service account to be added as a **delegated owner** of the property; user-level
 access is not sufficient.
 
+## Remote deployment (Cloudflare Workers)
+
+Full step-by-step guide (Spanish): [docs/DEPLOY.md](docs/DEPLOY.md).
+
+Run the server online so AI clients connect over HTTPS (Streamable HTTP, stateless) instead of spawning a local process.
+
+```bash
+npm install
+npx wrangler login
+openssl rand -hex 32                      # generate a token, then:
+npx wrangler secret put MCP_AUTH_TOKEN    # paste it (min 32 chars)
+
+# Google credentials: pick one
+npx wrangler secret put GSC_SERVICE_ACCOUNT_JSON     # paste the service account key JSON
+# or: GSC_CLIENT_ID, GSC_CLIENT_SECRET, GSC_REFRESH_TOKEN (three secrets)
+
+npm run worker:deploy
+```
+
+Endpoint: `https://gsc-mcp.<your-subdomain>.workers.dev/mcp` (health check: `/health`).
+
+Connect a client:
+
+```bash
+claude mcp add --transport http gsc https://gsc-mcp.<your-subdomain>.workers.dev/mcp \
+  --header "Authorization: Bearer <MCP_AUTH_TOKEN>"
+```
+
+Clients without remote HTTP support can use [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) with the same URL and header.
+
+Security notes:
+
+- Every request needs `Authorization: Bearer <MCP_AUTH_TOKEN>`. If the secret is missing or shorter than 32 chars the Worker answers `503` and serves nothing (fail closed).
+- The Worker holds your Google credentials with **write access** (delete sites, sitemaps, indexing notifications). Anyone with the token has the same power. Set `GSC_ALLOWED_SITES` (Worker variable) to limit which properties can be touched, or `GSC_READ_ONLY=1` for a read-only server.
+- Rotate the token with `npx wrangler secret put MCP_AUTH_TOKEN`, then update your clients.
+- Add a Cloudflare WAF rate-limiting rule on `/mcp` to slow down token guessing.
+- Browser requests (an `Origin` header) are rejected unless listed in `MCP_ALLOWED_ORIGINS`.
+- Not supported: OAuth 2.1 connectors (for example the claude.ai web "custom connector" UI). Use a client that accepts a custom `Authorization` header.
+- Local testing: copy `.dev.vars.example` to `.dev.vars`, then `npm run worker:dev`.
+
 ## Setup Guide
 
 ### OAuth2 Setup

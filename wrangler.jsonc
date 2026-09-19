@@ -1,0 +1,13 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gsc-mcp",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-09-01",
+  // nodejs_compat exposes vars/secrets on process.env (used by src/server.ts and src/auth.ts)
+  "compatibility_flags": ["nodejs_compat"],
+  "observability": { "enabled": true }
+  // Secrets (set with `wrangler secret put <NAME>`, never put them here):
+  //   MCP_AUTH_TOKEN
+  //   GSC_SERVICE_ACCOUNT_JSON  or  GSC_CLIENT_ID + GSC_CLIENT_SECRET + GSC_REFRESH_TOKEN
+  // Optional plain vars: GSC_ALLOWED_SITES, GSC_READ_ONLY, MCP_ALLOWED_ORIGINS
+}

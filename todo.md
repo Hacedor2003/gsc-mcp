@@ -9,6 +9,11 @@ sanitized token-refresh errors, Node 22 + non-root Dockerfile, pinned version in
 `npm audit fix`.
 
 ## Pending
+- [ ] Worker: OAuth 2.1 (dynamic client registration) so claude.ai web connectors can connect; today only static bearer.
+- [ ] Worker: several tokens with different scopes per client (for example one read-only token) + audit log of tool calls.
+- [ ] Worker: native rate limiting / failed-auth lockout (today: document a WAF rule).
+- [ ] Worker: stateless only; no server-initiated notifications or resource subscriptions.
+- [ ] Worker: deploy is manual (`npm run worker:deploy`); add a CI workflow if wanted.
 - [ ] Prompt injection is only mitigated, not solved: the marker is advisory. A client-side
       confirmation for destructive tools (`destructiveHint`) is still required.
 - [ ] `assertIndexingEligibility` is cosmetic: `contentType` is model-declared and never verified on the page.

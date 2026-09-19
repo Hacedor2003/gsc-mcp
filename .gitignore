@@ -3,3 +3,5 @@ dist/
 *.tgz
 .smithery/
 graphify-out/
+.dev.vars
+.wrangler/
