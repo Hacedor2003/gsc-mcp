@@ -7,8 +7,10 @@ import { HTTP_TIMEOUT_MS, getAccessToken as fetchAccessToken } from "./auth.js";
 import { parseIndexingBatchResponse } from "./indexing-batch.js";
 import {
   createSchemas,
+  filterSitesBody,
   isToolEnabled,
   parseAllowedSites,
+  redactProjectIds,
   truncateError,
   untrusted,
   untrustedJson,
@@ -17,29 +19,26 @@ import {
 // ── Config ──
 
 // Read-only mode: no write/destructive tools registered, read-only OAuth scope.
-const READ_ONLY = /^(1|true|yes)$/i.test(process.env.GSC_READ_ONLY || "");
+// Env var sets the default (stdio, static-bearer worker requests); an OAuth
+// access token's scope can override this per request via buildServer's param.
+const ENV_READ_ONLY = /^(1|true|yes)$/i.test(process.env.GSC_READ_ONLY || "");
+
+// Verify indexing_publish/indexing_batch_publish's contentType against the page's
+// own JSON-LD before notifying Google. Off by default: it fetches the target URL,
+// which adds latency and assumes the Worker can reach it. The URL is already
+// constrained by httpUrlSchema + GSC_ALLOWED_SITES, so this doesn't widen SSRF exposure.
+const VERIFY_INDEXING_CONTENT = /^(1|true|yes)$/i.test(
+  process.env.GSC_VERIFY_INDEXING_CONTENT || "",
+);
 
 const WEBMASTERS_BASE = "https://www.googleapis.com/webmasters/v3";
 const INSPECTION_BASE = "https://searchconsole.googleapis.com/v1";
 const INDEXING_BASE = "https://indexing.googleapis.com/v3";
-const SERVER_VERSION = "1.3.3";
-
-const SCOPES = READ_ONLY
-  ? ["https://www.googleapis.com/auth/webmasters.readonly"]
-  : [
-      "https://www.googleapis.com/auth/webmasters",
-      "https://www.googleapis.com/auth/indexing",
-    ];
+const SERVER_VERSION = "1.4.0";
 
 // Optional allowlist of properties/URLs tools may touch (empty = unrestricted).
 const ALLOWED_SITES = parseAllowedSites(process.env.GSC_ALLOWED_SITES);
 const { siteUrlSchema, httpUrlSchema } = createSchemas(ALLOWED_SITES);
-
-// ── Auth ──
-
-function getAccessToken(): Promise<string> {
-  return fetchAccessToken(SCOPES);
-}
 
 // ── Helpers ──
 
@@ -47,43 +46,59 @@ function encodeSiteUrl(siteUrl: string): string {
   return encodeURIComponent(siteUrl);
 }
 
-async function apiCall(
-  url: string,
-  options: RequestInit = {},
-): Promise<{ ok: boolean; status: number; body: string }> {
-  const token = await getAccessToken();
-  const headers: Record<string, string> = {
-    Authorization: `Bearer ${token}`,
-    ...((options.headers as Record<string, string>) || {}),
-  };
-
-  const res = await fetch(url, {
-    ...options,
-    headers,
-    signal: options.signal || AbortSignal.timeout(HTTP_TIMEOUT_MS),
-  });
-  const body = await res.text();
-  return { ok: res.ok, status: res.status, body };
-}
-
 function toolResult(result: { ok: boolean; body: string }) {
+  const body = result.ok ? result.body : redactProjectIds(result.body);
   return {
-    content: [{ type: "text" as const, text: untrusted(result.body) }],
+    content: [{ type: "text" as const, text: untrusted(body) }],
     isError: !result.ok,
   };
 }
 
 function errorResult(e: unknown) {
   const raw = e instanceof Error ? e.message : String(e);
-  const message = truncateError(raw);
+  const message = redactProjectIds(truncateError(raw));
   return {
     content: [{ type: "text" as const, text: `Error: ${message}` }],
     isError: true,
   };
 }
 
-function buildServer(sandbox: boolean): McpServer {
+/**
+ * @param readOnly Overrides GSC_READ_ONLY for this server instance (e.g. an
+ *   OAuth access token scoped to `gsc:read`). Defaults to the env var.
+ */
+function buildServer(sandbox: boolean, readOnly: boolean = ENV_READ_ONLY): McpServer {
   // ── MCP Server ──
+
+  const SCOPES = readOnly
+    ? ["https://www.googleapis.com/auth/webmasters.readonly"]
+    : [
+        "https://www.googleapis.com/auth/webmasters",
+        "https://www.googleapis.com/auth/indexing",
+      ];
+
+  function getAccessToken(): Promise<string> {
+    return fetchAccessToken(SCOPES);
+  }
+
+  async function apiCall(
+    url: string,
+    options: RequestInit = {},
+  ): Promise<{ ok: boolean; status: number; body: string }> {
+    const token = await getAccessToken();
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+      ...((options.headers as Record<string, string>) || {}),
+    };
+
+    const res = await fetch(url, {
+      ...options,
+      headers,
+      signal: options.signal || AbortSignal.timeout(HTTP_TIMEOUT_MS),
+    });
+    const body = await res.text();
+    return { ok: res.ok, status: res.status, body };
+  }
 
   const server = new McpServer({
     name: "gsc-mcp",
@@ -139,7 +154,7 @@ function buildServer(sandbox: boolean): McpServer {
   // Write tools go to a throwaway server in read-only mode, so they are never exposed.
   const discardServer = new McpServer({ name: "discard", version: "0.0.0" });
   function toolServer(name: string): McpServer {
-    return isToolEnabled(name, READ_ONLY) ? sandboxView : discardServer;
+    return isToolEnabled(name, readOnly) ? sandboxView : discardServer;
   }
 
   // ════════════════════════════════════════════
@@ -157,6 +172,7 @@ function buildServer(sandbox: boolean): McpServer {
         const result = await apiCall(`${WEBMASTERS_BASE}/sites`, {
           method: "GET",
         });
+        if (result.ok) result.body = filterSitesBody(result.body, ALLOWED_SITES);
         return toolResult(result);
       } catch (e) {
         return errorResult(e);
@@ -209,7 +225,7 @@ function buildServer(sandbox: boolean): McpServer {
               type: "text" as const,
               text: result.ok
                 ? `Site "${siteUrl}" added successfully.`
-                : result.body,
+                : redactProjectIds(result.body),
             },
           ],
           isError: !result.ok,
@@ -240,7 +256,7 @@ function buildServer(sandbox: boolean): McpServer {
               type: "text" as const,
               text: result.ok
                 ? `Site "${siteUrl}" removed successfully.`
-                : result.body,
+                : redactProjectIds(result.body),
             },
           ],
           isError: !result.ok,
@@ -327,7 +343,7 @@ function buildServer(sandbox: boolean): McpServer {
               type: "text" as const,
               text: result.ok
                 ? `Sitemap "${feedpath}" submitted successfully.`
-                : result.body,
+                : redactProjectIds(result.body),
             },
           ],
           isError: !result.ok,
@@ -359,7 +375,7 @@ function buildServer(sandbox: boolean): McpServer {
               type: "text" as const,
               text: result.ok
                 ? `Sitemap "${feedpath}" deleted successfully.`
-                : result.body,
+                : redactProjectIds(result.body),
             },
           ],
           isError: !result.ok,
@@ -558,6 +574,63 @@ function buildServer(sandbox: boolean): McpServer {
     }
   }
 
+  function jsonLdMatchesType(node: unknown, contentType: string): boolean {
+    if (!node || typeof node !== "object") return false;
+    const obj = node as Record<string, unknown>;
+    const types = ([] as unknown[]).concat(obj["@type"] as never);
+    if (types.includes(contentType)) return true;
+    if (contentType !== "BroadcastEvent" || !types.includes("VideoObject")) return false;
+    const publications = ([] as unknown[]).concat(obj["publication"] as never);
+    return publications.some(
+      (p) =>
+        p &&
+        typeof p === "object" &&
+        ([] as unknown[]).concat((p as Record<string, unknown>)["@type"] as never).includes("BroadcastEvent"),
+    );
+  }
+
+  /**
+   * When GSC_VERIFY_INDEXING_CONTENT is set, fetch the page and require its own
+   * JSON-LD to declare the notified contentType, since `contentType` is otherwise
+   * model-declared and never checked against the page. `url` is already validated
+   * by httpUrlSchema and GSC_ALLOWED_SITES, so this doesn't widen SSRF exposure.
+   */
+  async function verifyIndexingContent(
+    url: string,
+    contentType: "JobPosting" | "BroadcastEvent",
+  ): Promise<void> {
+    if (!VERIFY_INDEXING_CONTENT) return;
+
+    let html: string;
+    try {
+      const res = await fetch(url, {
+        redirect: "follow",
+        signal: AbortSignal.timeout(HTTP_TIMEOUT_MS),
+      });
+      html = await res.text();
+    } catch (e) {
+      const raw = e instanceof Error ? e.message : String(e);
+      throw new Error(`Could not fetch ${url} to verify contentType: ${truncateError(raw)}`);
+    }
+
+    const blocks = [
+      ...html.matchAll(/<script[^>]*type=["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi),
+    ].map((m) => m[1]);
+    const declared = blocks.some((block) => {
+      try {
+        const data = JSON.parse(block);
+        return ([] as unknown[]).concat(data).some((node) => jsonLdMatchesType(node, contentType));
+      } catch {
+        return false;
+      }
+    });
+    if (!declared) {
+      throw new Error(
+        `Page ${url} has no JSON-LD declaring ${contentType}; Google Indexing API will reject or ignore this notification.`,
+      );
+    }
+  }
+
   // ── indexing_publish ──
   toolServer("indexing_publish").tool(
     "indexing_publish",
@@ -575,6 +648,7 @@ function buildServer(sandbox: boolean): McpServer {
     async ({ url, contentType, type }) => {
       try {
         assertIndexingEligibility(contentType);
+        await verifyIndexingContent(url, contentType);
         const result = await apiCall(
           `${INDEXING_BASE}/urlNotifications:publish`,
           {
@@ -643,6 +717,9 @@ function buildServer(sandbox: boolean): McpServer {
       try {
         notifications.forEach(({ contentType }) =>
           assertIndexingEligibility(contentType),
+        );
+        await Promise.all(
+          notifications.map(({ url, contentType }) => verifyIndexingContent(url, contentType)),
         );
         const token = await getAccessToken();
         const boundary = `batch_gsc_mcp_${Date.now()}`;
@@ -807,12 +884,13 @@ function buildServer(sandbox: boolean): McpServer {
       const result = await apiCall(`${WEBMASTERS_BASE}/sites`, {
         method: "GET",
       });
+      const body = result.ok ? filterSitesBody(result.body, ALLOWED_SITES) : result.body;
       return {
         contents: [
           {
             uri: "gsc://sites",
             mimeType: "application/json",
-            text: untrustedJson(result.body),
+            text: untrustedJson(body),
           },
         ],
       };

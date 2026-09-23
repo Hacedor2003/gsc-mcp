@@ -157,10 +157,16 @@ Actualiza después el header en cada cliente. El token anterior deja de valer de
 | Google devuelve 403 en una propiedad | El service account no es usuario de esa propiedad en Search Console. |
 | `Not in GSC_ALLOWED_SITES` | La propiedad o URL queda fuera de la lista permitida. |
 
-## 12. Límites conocidos
+## 12. CI
+
+`.github/workflows/deploy.yml` corre en cada push a `main` (y manualmente con
+`workflow_dispatch`): `npm ci`, build, tests, `worker:check` (dry-run) y solo si
+todo pasa, `wrangler deploy`. Requiere el secret de repo `CLOUDFLARE_API_TOKEN`
+(Workers → *Edit Cloudflare Workers* en el dashboard).
+
+## 13. Límites conocidos
 
 - Sin OAuth 2.1 (conectores web de claude.ai) y con un único token para todos los clientes.
 - Modo stateless: sin notificaciones iniciadas por el servidor ni suscripciones a resources.
-- El despliegue es manual. No hay flujo de CI.
 
 Estos puntos están en `todo.md`.

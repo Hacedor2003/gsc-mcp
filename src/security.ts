@@ -66,6 +66,13 @@ export function truncateError(raw: string, max = MAX_ERROR_CHARS): string {
   return raw.length > max ? raw.slice(0, max) + "…" : raw;
 }
 
+/** Redact GCP project identifiers (numbers and names) from error text before it reaches the model. */
+export function redactProjectIds(raw: string): string {
+  return raw
+    .replace(/projects\/[A-Za-z0-9-]+/g, "projects/[redacted]")
+    .replace(/"project(Id|Number)?"\s*:\s*"[^"]*"/gi, (m) => m.replace(/:\s*"[^"]*"/, ': "[redacted]"'));
+}
+
 // ── Site allowlist ──
 
 export type AllowedSites = readonly string[];
@@ -113,6 +120,21 @@ export function isAllowed(target: string, allowed: AllowedSites): boolean {
       targetUrl.pathname.startsWith(prefix.pathname)
     );
   });
+}
+
+/** Drop sites outside GSC_ALLOWED_SITES from a `sites.list` response body. Passes through unchanged on parse failure or empty allowlist. */
+export function filterSitesBody(body: string, allowed: AllowedSites): string {
+  if (allowed.length === 0) return body;
+  try {
+    const parsed = JSON.parse(body) as { siteEntry?: Array<{ siteUrl?: string }> };
+    if (!Array.isArray(parsed.siteEntry)) return body;
+    parsed.siteEntry = parsed.siteEntry.filter(
+      (entry) => typeof entry.siteUrl === "string" && isAllowed(entry.siteUrl, allowed),
+    );
+    return JSON.stringify(parsed);
+  } catch {
+    return body;
+  }
 }
 
 // ── Input schemas ──
