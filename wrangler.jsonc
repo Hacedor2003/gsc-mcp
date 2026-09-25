@@ -5,7 +5,15 @@
   "compatibility_date": "2026-09-01",
   // nodejs_compat exposes vars/secrets on process.env (used by src/server.ts and src/auth.ts)
   "compatibility_flags": ["nodejs_compat"],
-  "observability": { "enabled": true }
+  "observability": { "enabled": true },
+  // No "id": wrangler >=4.45 provisions the namespace on first deploy.
+  // Or create it yourself (`wrangler kv namespace create OAUTH_KV`) and add "id".
+  "kv_namespaces": [{ "binding": "OAUTH_KV" }],
+  // Rate limiting bindings (paid plan). Remove them on the free plan: the Worker skips absent limiters.
+  "ratelimits": [
+    { "name": "MCP_RATE_LIMITER", "namespace_id": "1001", "simple": { "limit": 60, "period": 60 } },
+    { "name": "TOOL_RATE_LIMITER", "namespace_id": "1002", "simple": { "limit": 10, "period": 60 } }
+  ]
   // Secrets (set with `wrangler secret put <NAME>`, never put them here):
   //   MCP_AUTH_TOKEN
   //   GSC_SERVICE_ACCOUNT_JSON  or  GSC_CLIENT_ID + GSC_CLIENT_SECRET + GSC_REFRESH_TOKEN

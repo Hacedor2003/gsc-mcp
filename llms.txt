@@ -32,7 +32,7 @@ Indexing API restriction: only JobPosting pages and livestream pages with Broadc
 ## Install
 
 ```
-npx -y @mikusnuz/gsc-mcp
+npx -y @mikusnuz/gsc-mcp@1.4.0
 ```
 
 ## Environment Variables
@@ -58,7 +58,7 @@ Search Console calls need sufficient property access. Indexing API calls require
   "mcpServers": {
     "gsc-mcp": {
       "command": "npx",
-      "args": ["-y", "@mikusnuz/gsc-mcp"],
+      "args": ["-y", "@mikusnuz/gsc-mcp@1.4.0"],
       "env": {
         "GSC_CLIENT_ID": "your-client-id",
         "GSC_CLIENT_SECRET": "your-client-secret",

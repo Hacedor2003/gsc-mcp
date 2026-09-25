@@ -19,4 +19,4 @@ startCommand:
         description: Path to Google service account JSON key file (alternative to OAuth2)
   commandFunction:
     |-
-    config => ({ command: 'npx', args: ['-y', '@mikusnuz/gsc-mcp@1.3.3'], env: { GSC_CLIENT_ID: config.gscClientId || '', GSC_CLIENT_SECRET: config.gscClientSecret || '', GSC_REFRESH_TOKEN: config.gscRefreshToken || '', GSC_SERVICE_ACCOUNT_KEY_PATH: config.gscServiceAccountKeyPath || '' } })
+    config => ({ command: 'npx', args: ['-y', '@mikusnuz/gsc-mcp@1.4.0'], env: { GSC_CLIENT_ID: config.gscClientId || '', GSC_CLIENT_SECRET: config.gscClientSecret || '', GSC_REFRESH_TOKEN: config.gscRefreshToken || '', GSC_SERVICE_ACCOUNT_KEY_PATH: config.gscServiceAccountKeyPath || '' } })

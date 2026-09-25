@@ -9,18 +9,18 @@ sanitized token-refresh errors, Node 22 + non-root Dockerfile, pinned version in
 `npm audit fix`.
 
 ## Pending
-- [ ] Worker: OAuth 2.1 (dynamic client registration) so claude.ai web connectors can connect; today only static bearer.
-- [ ] Worker: several tokens with different scopes per client (for example one read-only token) + audit log of tool calls.
-- [ ] Worker: native rate limiting / failed-auth lockout (today: document a WAF rule).
+- [x] Worker: OAuth 2.1 (dynamic client registration, PKCE) so claude.ai web connectors can connect. Needs `OAUTH_KV`.
+- [x] Worker: per-client scopes (`gsc:read` = read-only) + audit log of tool calls (`console.log`).
+- [x] Worker: native rate limiting per IP (`MCP_RATE_LIMITER`, also covers login brute force). Needs paid plan.
 - [ ] Worker: stateless only; no server-initiated notifications or resource subscriptions.
 - [x] Worker: CI workflow (`.github/workflows/deploy.yml`) — build+test+dry-run gate, then `wrangler deploy`. Needs `CLOUDFLARE_API_TOKEN` repo secret.
 - [ ] Prompt injection is only mitigated, not solved: the marker is advisory. A client-side
       confirmation for destructive tools (`destructiveHint`) is still required.
 - [ ] `assertIndexingEligibility` is cosmetic: `contentType` is model-declared and never verified on the page.
       Consider fetching the page and checking for JobPosting/BroadcastEvent JSON-LD (adds SSRF risk: needs allowlist).
-- [ ] `sites_list` / `gsc://sites` still list every property even when `GSC_ALLOWED_SITES` is set; filter the output.
-- [ ] Rate limit / per-session cap on destructive calls and batch indexing (quota burn).
-- [ ] Remaining error text from Google API bodies (`toolResult`) is passed through as data; consider redacting project IDs.
-- [ ] Replace `npx -y` docs with a lockfile/integrity-checked install; consider npm provenance on publish.
+- [x] `sites_list` / `gsc://sites` still list every property even when `GSC_ALLOWED_SITES` is set; filter the output.
+- [x] Rate limit (`TOOL_RATE_LIMITER`) / per-session cap on destructive calls and batch indexing (quota burn).
+- [x] Remaining error text from Google API bodies (`toolResult`) is passed through as data; consider redacting project IDs.
+- [x] Docs pin `npx -y ...@1.4.0`. Still open: npm provenance on publish.
 - [x] `package.json` `engines` raised to >=20.
-- [ ] Bump `SERVER_VERSION`/package version and update pinned `@1.3.3` in docs when releasing.
+- [x] Bumped to 1.4.0 (package, `SERVER_VERSION`, pinned docs). Publish to npm before the pin resolves.

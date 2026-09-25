@@ -78,7 +78,7 @@ Two authentication methods are supported:
   "mcpServers": {
     "gsc-mcp": {
       "command": "npx",
-      "args": ["-y", "@mikusnuz/gsc-mcp@1.3.3"],
+      "args": ["-y", "@mikusnuz/gsc-mcp@1.4.0"],
       "env": {
         "GSC_CLIENT_ID": "your-client-id",
         "GSC_CLIENT_SECRET": "your-client-secret",
@@ -108,7 +108,7 @@ Required OAuth2 scopes:
   "mcpServers": {
     "gsc-mcp": {
       "command": "npx",
-      "args": ["-y", "@mikusnuz/gsc-mcp@1.3.3"],
+      "args": ["-y", "@mikusnuz/gsc-mcp@1.4.0"],
       "env": {
         "GSC_SERVICE_ACCOUNT_KEY_PATH": "/path/to/service-account-key.json"
       }
@@ -157,9 +157,9 @@ Security notes:
 - Every request needs `Authorization: Bearer <MCP_AUTH_TOKEN>`. If the secret is missing or shorter than 32 chars the Worker answers `503` and serves nothing (fail closed).
 - The Worker holds your Google credentials with **write access** (delete sites, sitemaps, indexing notifications). Anyone with the token has the same power. Set `GSC_ALLOWED_SITES` (Worker variable) to limit which properties can be touched, or `GSC_READ_ONLY=1` for a read-only server.
 - Rotate the token with `npx wrangler secret put MCP_AUTH_TOKEN`, then update your clients.
-- Add a Cloudflare WAF rate-limiting rule on `/mcp` to slow down token guessing.
+- Per-IP rate limiting on `/mcp` and OAuth routes, plus a stricter limit for write/batch tools, via the `MCP_RATE_LIMITER` / `TOOL_RATE_LIMITER` bindings (paid plan; see `docs/DEPLOY.md`). Every `tools/call` is audit-logged (tool, client, IP; no arguments).
 - Browser requests (an `Origin` header) are rejected unless listed in `MCP_ALLOWED_ORIGINS`.
-- Not supported: OAuth 2.1 connectors (for example the claude.ai web "custom connector" UI). Use a client that accepts a custom `Authorization` header.
+- OAuth 2.1 (dynamic client registration + PKCE) is supported for claude.ai custom connectors when the `OAUTH_KV` binding exists; scope `gsc:read` gives a read-only session.
 - Local testing: copy `.dev.vars.example` to `.dev.vars`, then `npm run worker:dev`.
 
 ## Setup Guide

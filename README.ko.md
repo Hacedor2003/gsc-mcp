@@ -63,7 +63,7 @@
   "mcpServers": {
     "gsc-mcp": {
       "command": "npx",
-      "args": ["-y", "@mikusnuz/gsc-mcp@1.3.3"],
+      "args": ["-y", "@mikusnuz/gsc-mcp@1.4.0"],
       "env": {
         "GSC_CLIENT_ID": "your-client-id",
         "GSC_CLIENT_SECRET": "your-client-secret",
@@ -85,7 +85,7 @@
   "mcpServers": {
     "gsc-mcp": {
       "command": "npx",
-      "args": ["-y", "@mikusnuz/gsc-mcp@1.3.3"],
+      "args": ["-y", "@mikusnuz/gsc-mcp@1.4.0"],
       "env": {
         "GSC_SERVICE_ACCOUNT_KEY_PATH": "/path/to/service-account-key.json"
       }

@@ -82,6 +82,18 @@ Ejemplo:
 "vars": { "GSC_ALLOWED_SITES": "sc-domain:example.com" }
 ```
 
+## 5b. KV, OAuth y límites
+
+- **KV `OAUTH_KV`:** guarda clientes, códigos y tokens OAuth. `wrangler.jsonc` lo declara sin `id`, así que
+  `wrangler deploy` lo crea solo. También puedes crearlo con `npx wrangler kv namespace create OAUTH_KV` y
+  añadir el `id` al binding. Sin el binding, las rutas OAuth responden 503 y el bearer estático sigue funcionando.
+- **Rate limiting** (bindings `ratelimits`, requieren plan de pago; sin binding no se limita):
+  `MCP_RATE_LIMITER` 60 peticiones/min por IP en `/mcp` y en las rutas OAuth (incluido el login de `/authorize`);
+  `TOOL_RATE_LIMITER` 10/min por cliente e IP para tools de escritura y batch
+  (`sites_add`, `sites_delete`, `sitemaps_submit`, `sitemaps_delete`, `indexing_*`). Excedidos: `429`.
+- **Audit log:** cada `tools/call` escribe una línea JSON en `console.log` (`tool`, `client`, `ip`; nunca argumentos).
+  Léelo con `npx wrangler tail`.
+
 ## 6. Conectar clientes
 
 **Claude Code**
@@ -94,7 +106,11 @@ claude mcp add --transport http gsc https://gsc-mcp.<tu-subdominio>.workers.dev/
 **Clientes sin soporte HTTP remoto** (por ejemplo algunos IDE): usa
 [`mcp-remote`](https://www.npmjs.com/package/mcp-remote) con la misma URL y el mismo header.
 
-**No soportado:** el conector web personalizado de claude.ai, porque exige OAuth 2.1 y este servidor usa un bearer estático.
+**claude.ai (conector personalizado):** añade la URL `.../mcp`. El Worker expone OAuth 2.1 con registro dinámico
+(`/.well-known/oauth-*`, `/register`, `/authorize`, `/token`, `/revoke`) y PKCE S256. En la pantalla de
+autorización pega `MCP_AUTH_TOKEN` como credencial de login. Requiere el binding `OAUTH_KV` (sección 5b).
+Scopes: `gsc:full` (por defecto) y `gsc:read` (solo lectura, oculta las tools de escritura).
+Los access tokens duran 1 h y los refresh tokens 90 días (con rotación).
 
 ## 7. Verificar
 
@@ -166,7 +182,7 @@ todo pasa, `wrangler deploy`. Requiere el secret de repo `CLOUDFLARE_API_TOKEN`
 
 ## 13. Límites conocidos
 
-- Sin OAuth 2.1 (conectores web de claude.ai) y con un único token para todos los clientes.
+- Las credenciales de Google son únicas: todos los clientes OAuth comparten la misma cuenta (solo varía el scope).
 - Modo stateless: sin notificaciones iniciadas por el servidor ni suscripciones a resources.
 
 Estos puntos están en `todo.md`.

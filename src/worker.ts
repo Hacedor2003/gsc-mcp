@@ -1,5 +1,27 @@
 import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js";
 import { buildServer } from "./server.js";
+import {
+  authorizationServerMetadata,
+  getAccessTokenInfo,
+  handleAuthorizeGet,
+  handleAuthorizePost,
+  handleRegister,
+  handleRevoke,
+  handleToken,
+  protectedResourceMetadata,
+  type KV,
+} from "./oauth.js";
+import { NON_READ_ONLY_TOOLS } from "./security.js";
+
+interface Limiter {
+  limit(opts: { key: string }): Promise<{ success: boolean }>;
+}
+
+export interface Env {
+  OAUTH_KV?: KV;
+  MCP_RATE_LIMITER?: Limiter;
+  TOOL_RATE_LIMITER?: Limiter;
+}
 
 const MCP_PATH = "/mcp";
 const MAX_BODY_BYTES = 1_048_576;
@@ -60,14 +82,49 @@ async function readLimitedBody(request: Request): Promise<string | null> {
   return new TextDecoder().decode(merged);
 }
 
-async function handle(request: Request): Promise<Response> {
-  const url = new URL(request.url);
+/** Limiter bindings are optional (they need a paid plan): no binding = no limit. */
+async function limited(limiter: Limiter | undefined, key: string): Promise<boolean> {
+  return limiter ? !(await limiter.limit({ key })).success : false;
+}
 
-  if (url.pathname === "/health") {
+const tooMany = () => json(429, { error: "Too many requests" }, { "Retry-After": "60" });
+
+/** Tool names in a JSON-RPC body (single message or batch) that are `tools/call`. */
+function calledTools(body: unknown): string[] {
+  const messages = Array.isArray(body) ? body : [body];
+  return messages.flatMap((m) => {
+    const msg = m as { method?: unknown; params?: { name?: unknown } } | null;
+    return msg?.method === "tools/call" && typeof msg.params?.name === "string"
+      ? [msg.params.name]
+      : [];
+  });
+}
+
+async function handle(request: Request, env: Env): Promise<Response> {
+  const url = new URL(request.url);
+  const path = url.pathname;
+  const kv = env.OAUTH_KV;
+
+  if (path === "/health") {
     return json(200, { ok: true });
   }
-  if (url.pathname !== MCP_PATH) {
+
+  // Discovery metadata is public and cheap.
+  if (kv && path === "/.well-known/oauth-authorization-server") {
+    return json(200, authorizationServerMetadata(url.origin));
+  }
+  if (kv && path.startsWith("/.well-known/oauth-protected-resource")) {
+    return json(200, protectedResourceMetadata(url.origin));
+  }
+
+  const isOAuthRoute = ["/register", "/authorize", "/token", "/revoke"].includes(path);
+  if (!isOAuthRoute && path !== MCP_PATH) {
     return json(404, { error: "Not found" });
+  }
+
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  if (await limited(env.MCP_RATE_LIMITER, `${path === MCP_PATH ? "mcp" : "oauth"}:${ip}`)) {
+    return tooMany();
   }
 
   // Fail closed: never serve tools without a configured, strong token.
@@ -78,10 +135,42 @@ async function handle(request: Request): Promise<Response> {
     });
   }
 
+  if (isOAuthRoute) {
+    if (!kv) return json(503, { error: "OAuth not configured: OAUTH_KV binding missing" });
+    if (path === "/authorize") {
+      if (request.method === "GET") return handleAuthorizeGet(url, kv);
+      if (request.method === "POST") return handleAuthorizePost(request, kv, expected);
+      return json(405, { error: "Method not allowed" }, { Allow: "GET, POST" });
+    }
+    if (request.method !== "POST") {
+      return json(405, { error: "Method not allowed" }, { Allow: "POST" });
+    }
+    if (path === "/register") return handleRegister(request, kv);
+    if (path === "/token") return handleToken(request, kv);
+    return handleRevoke(request, kv);
+  }
+
   const authorization = request.headers.get("authorization") || "";
   const match = /^Bearer\s+(\S+)$/i.exec(authorization);
-  if (!match || !(await secretsEqual(match[1], expected))) {
-    return json(401, { error: "Unauthorized" }, { "WWW-Authenticate": "Bearer" });
+  let client = "static";
+  let readOnly: boolean | undefined; // undefined = GSC_READ_ONLY default
+  if (match && (await secretsEqual(match[1], expected))) {
+    // static bearer: full access unless GSC_READ_ONLY
+  } else {
+    const info = match && kv ? await getAccessTokenInfo(kv, match[1]) : null;
+    if (!info) {
+      return json(
+        401,
+        { error: "Unauthorized" },
+        {
+          "WWW-Authenticate": kv
+            ? `Bearer resource_metadata="${url.origin}/.well-known/oauth-protected-resource"`
+            : "Bearer",
+        },
+      );
+    }
+    client = info.clientId;
+    readOnly = info.scope === "gsc:read" ? true : undefined;
   }
 
   // DNS-rebinding / CSRF guard: browsers send Origin, MCP clients normally do not.
@@ -105,7 +194,19 @@ async function handle(request: Request): Promise<Response> {
     return json(400, { error: "Invalid JSON body" });
   }
 
-  const server = buildServer(false);
+  const tools = calledTools(parsedBody);
+  for (const tool of tools) {
+    // Audit: who called what. Never log arguments (may hold URLs/queries).
+    console.log(JSON.stringify({ event: "tools/call", tool, client, ip }));
+  }
+  if (
+    tools.some((t) => NON_READ_ONLY_TOOLS.has(t)) &&
+    (await limited(env.TOOL_RATE_LIMITER, `tool:${client}:${ip}`))
+  ) {
+    return tooMany();
+  }
+
+  const server = buildServer(false, readOnly);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
@@ -115,9 +216,9 @@ async function handle(request: Request): Promise<Response> {
 }
 
 export default {
-  async fetch(request: Request): Promise<Response> {
+  async fetch(request: Request, env: Env): Promise<Response> {
     try {
-      return await handle(request);
+      return await handle(request, env ?? {});
     } catch {
       // Never leak internals (or secrets) to the caller.
       return json(500, { error: "Internal error" });

@@ -156,3 +156,20 @@ test("allowlist rejects other sites before any network call", async () => {
   assert.equal(result.isError, true);
   assert.match(result.content[0].text, /GSC_ALLOWED_SITES/);
 });
+
+test("filterSitesBody drops sites outside the allowlist", async () => {
+  const { filterSitesBody } = await import("../dist/security.js");
+  const body = JSON.stringify({
+    siteEntry: [{ siteUrl: "sc-domain:ok.com" }, { siteUrl: "sc-domain:evil.com" }],
+  });
+  assert.deepEqual(JSON.parse(filterSitesBody(body, ["sc-domain:ok.com"])).siteEntry, [
+    { siteUrl: "sc-domain:ok.com" },
+  ]);
+  assert.equal(filterSitesBody(body, []), body);
+});
+
+test("redactProjectIds hides GCP project identifiers", async () => {
+  const { redactProjectIds } = await import("../dist/security.js");
+  const out = redactProjectIds('see projects/my-proj-123 {"projectId": "my-proj-123"}');
+  assert.ok(!out.includes("my-proj-123"));
+});
